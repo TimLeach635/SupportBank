@@ -2,54 +2,85 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Newtonsoft.Json;
+using NLog;
+using NLog.Fluent;
 
 namespace SupportBank
 {
     public class Bank
     {
-        public List<Person> Accounts = new();
+        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+        
+        public List<Person> People = new();
         public List<Transaction> Transactions = new();
 
         public static Bank FromFile(string path)
         {
+            Logger.Debug($"Reading transactions from file {path}");
             using var reader = new StreamReader(path);
 
             Bank bank = new Bank();
             
             // discard header row
             reader.ReadLine();
+
+            var lineNumber = 2;
             
             while (!reader.EndOfStream)
             {
+                Logger.Debug($"Reading line {lineNumber} of {path}...");
+                lineNumber++;
                 var line = reader.ReadLine();
                 if (line is null)
                     break;
                 var values = line.Split(",");
 
-                var dateString = values[0];
-                var fromString = values[1];
-                var toString = values[2];
-                var narrativeString = values[3];
-                var amountString = values[4];
+                string dateString = values[0];
+                string fromString = values[1];
+                string toString = values[2];
+                string narrativeString = values[3];
+                string amountString = values[4];
 
-                if (bank.Accounts.All(p => p.Name != fromString))
+                if (bank.People.All(p => p.Name != fromString))
                 {
-                    bank.Accounts.Add(new Person { Name = fromString });
+                    bank.People.Add(new Person { Name = fromString });
                 }
-                if (bank.Accounts.All(p => p.Name != toString))
+                if (bank.People.All(p => p.Name != toString))
                 {
-                    bank.Accounts.Add(new Person { Name = toString });
+                    bank.People.Add(new Person { Name = toString });
                 }
-                
-                bank.Transactions.Add(new Transaction
+
+                try
                 {
-                    Date = DateTime.Parse(dateString),
-                    From = bank.Accounts.Find(p => p.Name == fromString),
-                    To = bank.Accounts.Find(p => p.Name == toString),
-                    Narrative = narrativeString,
-                    Amount = Decimal.Parse(amountString)
-                });
+                    bank.Transactions.Add(new Transaction
+                    {
+                        Date = DateTime.Parse(dateString),
+                        From = bank.People.Find(p => p.Name == fromString),
+                        To = bank.People.Find(p => p.Name == toString),
+                        Narrative = narrativeString,
+                        Amount = Decimal.Parse(amountString)
+                    });
+                }
+                catch (Exception e)
+                {
+                    Logger.Error($"Error converting {path} line {lineNumber} to a Transaction.");
+                    Logger.Error($"Line: {line}");
+                    throw new InvalidCastException($"Failed to create a Transaction from {path}, line {lineNumber}", e);
+                }
             }
+
+            return bank;
+        }
+
+        public static Bank FromJsonFile(string path)
+        {
+            using var reader = new StreamReader(path);
+
+            Bank bank = new Bank();
+
+            var file = reader.ReadToEnd();
+            var fileDecoded = JsonConvert.DeserializeObject(file);
 
             return bank;
         }
